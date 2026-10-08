@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# private PDFs for ingestion (keep the folder, ignore the files)
+/documents/*
+!/documents/.gitkeep
+!.env.example
