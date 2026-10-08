@@ -18,13 +18,14 @@ import {
 const DOCS_DIR = path.join(process.cwd(), "documents");
 const BATCH_SIZE = 25; // chunks embedded per API call
 const MS_PER_CHUNK = 1000; // pacing for Gemini free tier (set to 0 on a paid key)
+const FORCE = process.argv.includes("--force"); // re-ingest everything from scratch
 
 const embeddings = getEmbeddings("document");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // The free Gemini tier sometimes returns an empty/short vector under load instead of an
 // error. Check every vector before it reaches the database; wait and retry if any is bad.
-async function embedWithRetry(texts: string[], attempts = 5): Promise<number[][]> {
+async function embedWithRetry(texts: string[], attempts = 3): Promise<number[][]> {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const vectors = await embeddings.embedDocuments(texts);
@@ -38,7 +39,11 @@ async function embedWithRetry(texts: string[], attempts = 5): Promise<number[][]
     }
     await sleep(30_000 * attempt); // let the per-minute quota window reset
   }
-  throw new Error("Embedding failed after retries");
+  throw new Error(
+    "Embedding kept failing. On the free Gemini tier this usually means a quota limit " +
+      "(per-minute or daily). Progress so far is saved: wait a while, then rerun " +
+      "`npm run ingest` and it will resume where it stopped.",
+  );
 }
 
 async function main() {
@@ -69,12 +74,29 @@ async function main() {
         }),
     );
 
-    // Re-running ingest replaces a file's old chunks instead of duplicating them
-    const { error } = await supabase.from("documents").delete().eq("metadata->>source", file);
-    if (error) throw error;
+    // Resume support: chunks are stored in order, one whole batch at a time, so the number of
+    // rows already stored for this file tells us where the last run stopped.
+    const { count, error: countError } = await supabase
+      .from("documents")
+      .select("*", { count: "exact", head: true })
+      .eq("metadata->>source", file);
+    if (countError) throw countError;
+    const start = FORCE ? 0 : (count ?? 0);
+
+    if (start >= chunks.length) {
+      console.log(`- ${file}: already ingested (${start} chunks), skipping`);
+      continue;
+    }
+    if (start === 0) {
+      // Fresh (or --force) run: clear any old rows so we never store duplicates
+      const { error } = await supabase.from("documents").delete().eq("metadata->>source", file);
+      if (error) throw error;
+    } else {
+      console.log(`  ${file}: resuming from chunk ${start}/${chunks.length}`);
+    }
 
     // 3. EMBED + STORE: in batches, so we don't send everything in one request
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    for (let i = start; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
       const vectors = await embedWithRetry(batch.map((c) => c.pageContent));
       await vectorStore.addVectors(vectors, batch);

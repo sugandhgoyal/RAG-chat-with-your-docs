@@ -110,7 +110,7 @@ Or ask from the terminal: `npm run ask -- "What is retrieval-augmented generatio
 - **Embedding dimensions.** pgvector's HNSW index supports up to 2,000 dimensions, but Gemini defaults to 3,072, so embeddings are requested at 768. Changing the embedding model later means re-ingesting everything.
 - **Thinking level.** The default Gemini "flash" alias reasons silently before answering, which made responses take 25+ seconds. Answering from supplied passages doesn't need that, so thinking is set to LOW (~3 seconds).
 - **Fail-closed rate limiting.** Daily counters live in Postgres (serverless instances don't share memory). If the counter can't be read, requests are refused rather than left unmetered. Visitors are identified by a salted hash of their IP; raw IPs are never stored.
-- **Re-ingesting is safe.** `ingest.ts` replaces a file's old chunks instead of duplicating them.
+- **Resumable ingestion.** Chunks are stored in order, so `ingest.ts` skips files that are already complete and continues partial ones where they stopped. If a quota limit interrupts a run, just rerun `npm run ingest` later. Use `npm run ingest -- --force` to re-embed everything from scratch (for example after changing the embedding model or chunk size).
 
 ## Limitations
 

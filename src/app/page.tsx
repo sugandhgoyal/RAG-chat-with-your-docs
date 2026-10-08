@@ -158,7 +158,9 @@ function MessageView({ message, pending }: { message: Message; pending: boolean 
           : pending && <span className="text-neutral-500">Searching documents...</span>}
       </p>
 
-      {message.sources && message.sources.length > 0 && (
+      {/* Retrieval always returns the 4 closest chunks, even for off-topic questions, so when
+          the model says it found nothing, listing those sources would be misleading. */}
+      {message.sources && message.sources.length > 0 && !message.content.startsWith("I couldn't find") && (
         <div className="space-y-1 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
           <p className="font-medium text-neutral-500">Sources</p>
           {message.sources.map((s) => (
